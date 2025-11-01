@@ -1,0 +1,502 @@
+## 🧱 1. `AppConfig.java`
+
+```java
+package com.example.studentmgmt.config;
+
+import java.util.Properties;
+import javax.sql.DataSource;
+
+import org.springframework.context.annotation.*;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.orm.hibernate5.*;
+import org.springframework.transaction.annotation.EnableTransactionManagement;
+
+@Configuration
+@ComponentScan(basePackages = "com.example.studentmgmt")
+@EnableTransactionManagement
+public class AppConfig {
+
+    @Bean
+    public DataSource dataSource() {
+        DriverManagerDataSource ds = new DriverManagerDataSource();
+        ds.setDriverClassName("com.mysql.cj.jdbc.Driver");
+        ds.setUrl("jdbc:mysql://localhost:3306/studentdb?useSSL=false");
+        ds.setUsername("root");
+        ds.setPassword("yourpassword");
+        return ds;
+    }
+
+    @Bean
+    public LocalSessionFactoryBean sessionFactory() {
+        LocalSessionFactoryBean factory = new LocalSessionFactoryBean();
+        factory.setDataSource(dataSource());
+        factory.setPackagesToScan("com.example.studentmgmt.model");
+        Properties props = new Properties();
+        props.put("hibernate.dialect", "org.hibernate.dialect.MySQL8Dialect");
+        props.put("hibernate.hbm2ddl.auto", "update");
+        props.put("hibernate.show_sql", "true");
+        factory.setHibernateProperties(props);
+        return factory;
+    }
+
+    @Bean
+    public HibernateTransactionManager transactionManager() {
+        return new HibernateTransactionManager(sessionFactory().getObject());
+    }
+}
+```
+
+---
+
+## 🧩 2. Model Classes
+
+### `Course.java`
+
+```java
+package com.example.studentmgmt.model;
+
+import jakarta.persistence.*;
+
+@Entity
+@Table(name = "courses")
+public class Course {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private int courseId;
+
+    @Column(nullable = false)
+    private String courseName;
+
+    private String duration;
+
+    public Course() {}
+    public Course(String courseName, String duration) {
+        this.courseName = courseName;
+        this.duration = duration;
+    }
+
+    // Getters/Setters
+    public int getCourseId() { return courseId; }
+    public String getCourseName() { return courseName; }
+    public void setCourseName(String courseName) { this.courseName = courseName; }
+    public String getDuration() { return duration; }
+    public void setDuration(String duration) { this.duration = duration; }
+
+    @Override
+    public String toString() {
+        return "Course ID: " + courseId + ", Name: " + courseName + ", Duration: " + duration;
+    }
+}
+```
+
+---
+
+### `Student.java`
+
+```java
+package com.example.studentmgmt.model;
+
+import jakarta.persistence.*;
+
+@Entity
+@Table(name = "students")
+public class Student {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private int studentId;
+
+    private String name;
+
+    private double balance;
+
+    @ManyToOne
+    @JoinColumn(name = "course_id")
+    private Course course;
+
+    public Student() {}
+    public Student(String name, double balance) {
+        this.name = name;
+        this.balance = balance;
+    }
+
+    // Getters/Setters
+    public int getStudentId() { return studentId; }
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+    public double getBalance() { return balance; }
+    public void setBalance(double balance) { this.balance = balance; }
+    public Course getCourse() { return course; }
+    public void setCourse(Course course) { this.course = course; }
+
+    @Override
+    public String toString() {
+        return "Student ID: " + studentId + ", Name: " + name +
+               ", Balance: " + balance +
+               (course != null ? ", Course: " + course.getCourseName() : "");
+    }
+}
+```
+
+---
+
+### `Payment.java`
+
+```java
+package com.example.studentmgmt.model;
+
+import jakarta.persistence.*;
+import java.util.Date;
+
+@Entity
+@Table(name = "payments")
+public class Payment {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private int paymentId;
+
+    private int studentId;
+    private double amount;
+
+    @Temporal(TemporalType.TIMESTAMP)
+    private Date paymentDate;
+
+    public Payment() {}
+    public Payment(int studentId, double amount) {
+        this.studentId = studentId;
+        this.amount = amount;
+        this.paymentDate = new Date();
+    }
+}
+```
+
+---
+
+## 🧰 3. DAO Layer
+
+### `StudentDAO.java`
+
+```java
+package com.example.studentmgmt.dao;
+
+import com.example.studentmgmt.model.*;
+import org.hibernate.Session;
+import org.hibernate.SessionFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+
+@Repository
+public class StudentDAO {
+
+    @Autowired
+    private SessionFactory sessionFactory;
+
+    private Session getSession() {
+        return sessionFactory.getCurrentSession();
+    }
+
+    // CRUD
+    public void saveStudent(Student student) {
+        getSession().save(student);
+    }
+
+    public Student getStudent(int id) {
+        return getSession().get(Student.class, id);
+    }
+
+    public List<Student> getAllStudents() {
+        return getSession().createQuery("from Student", Student.class).list();
+    }
+
+    public void updateStudent(Student student) {
+        getSession().update(student);
+    }
+
+    public void deleteStudent(int id) {
+        Student s = getStudent(id);
+        if (s != null) getSession().delete(s);
+    }
+
+    // Course operations
+    public void saveCourse(Course course) {
+        getSession().save(course);
+    }
+
+    public Course getCourse(int id) {
+        return getSession().get(Course.class, id);
+    }
+
+    // Payment log
+    public void savePayment(Payment p) {
+        getSession().save(p);
+    }
+}
+```
+
+---
+
+## 💼 4. Service Layer
+
+### `StudentService.java`
+
+```java
+package com.example.studentmgmt.service;
+
+import com.example.studentmgmt.dao.StudentDAO;
+import com.example.studentmgmt.model.Course;
+import com.example.studentmgmt.model.Student;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+
+@Service
+public class StudentService {
+
+    @Autowired
+    private StudentDAO dao;
+
+    @Transactional
+    public void addStudent(String name, double balance) {
+        dao.saveStudent(new Student(name, balance));
+    }
+
+    @Transactional(readOnly = true)
+    public List<Student> viewAllStudents() {
+        return dao.getAllStudents();
+    }
+
+    @Transactional
+    public void assignCourse(int studentId, int courseId) {
+        Student s = dao.getStudent(studentId);
+        Course c = dao.getCourse(courseId);
+        if (s != null && c != null) {
+            s.setCourse(c);
+            dao.updateStudent(s);
+        }
+    }
+
+    @Transactional
+    public void updateStudentName(int id, String newName) {
+        Student s = dao.getStudent(id);
+        if (s != null) {
+            s.setName(newName);
+            dao.updateStudent(s);
+        }
+    }
+
+    @Transactional
+    public void deleteStudent(int id) {
+        dao.deleteStudent(id);
+    }
+
+    @Transactional
+    public void addCourse(String name, String duration) {
+        dao.saveCourse(new Course(name, duration));
+    }
+}
+```
+
+---
+
+### `FeeService.java`
+
+```java
+package com.example.studentmgmt.service;
+
+import com.example.studentmgmt.dao.StudentDAO;
+import com.example.studentmgmt.model.Payment;
+import com.example.studentmgmt.model.Student;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service
+public class FeeService {
+
+    @Autowired
+    private StudentDAO dao;
+
+    @Transactional
+    public void makePayment(int studentId, double amount) {
+        Student s = dao.getStudent(studentId);
+        if (s == null) throw new RuntimeException("Student not found");
+        if (s.getBalance() < amount) throw new RuntimeException("Insufficient balance");
+
+        s.setBalance(s.getBalance() - amount);
+        dao.updateStudent(s);
+        dao.savePayment(new Payment(studentId, amount));
+        System.out.println("Payment successful for Student ID: " + studentId);
+    }
+
+    @Transactional
+    public void refundPayment(int studentId, double amount) {
+        Student s = dao.getStudent(studentId);
+        if (s == null) throw new RuntimeException("Student not found");
+
+        s.setBalance(s.getBalance() + amount);
+        dao.updateStudent(s);
+        dao.savePayment(new Payment(studentId, -amount));
+        System.out.println("Refund successful for Student ID: " + studentId);
+    }
+}
+```
+
+---
+
+## 🖥️ 5. Main Console App
+
+### `MainApp.java`
+
+```java
+package com.example.studentmgmt;
+
+import com.example.studentmgmt.config.AppConfig;
+import com.example.studentmgmt.model.Student;
+import com.example.studentmgmt.service.FeeService;
+import com.example.studentmgmt.service.StudentService;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+
+import java.util.Scanner;
+
+public class MainApp {
+    public static void main(String[] args) {
+        AnnotationConfigApplicationContext context =
+                new AnnotationConfigApplicationContext(AppConfig.class);
+
+        StudentService studentService = context.getBean(StudentService.class);
+        FeeService feeService = context.getBean(FeeService.class);
+        Scanner sc = new Scanner(System.in);
+
+        while (true) {
+            System.out.println("\n==== Student Management Menu ====");
+            System.out.println("1. Add Student");
+            System.out.println("2. Add Course");
+            System.out.println("3. Assign Course");
+            System.out.println("4. View All Students");
+            System.out.println("5. Update Student Name");
+            System.out.println("6. Delete Student");
+            System.out.println("7. Make Fee Payment");
+            System.out.println("8. Refund Payment");
+            System.out.println("9. Exit");
+            System.out.print("Enter choice: ");
+            int choice = sc.nextInt();
+
+            try {
+                switch (choice) {
+                    case 1 -> {
+                        System.out.print("Enter name: ");
+                        String name = sc.next();
+                        System.out.print("Enter balance: ");
+                        double bal = sc.nextDouble();
+                        studentService.addStudent(name, bal);
+                    }
+                    case 2 -> {
+                        System.out.print("Course name: ");
+                        String cname = sc.next();
+                        System.out.print("Duration: ");
+                        String dur = sc.next();
+                        studentService.addCourse(cname, dur);
+                    }
+                    case 3 -> {
+                        System.out.print("Student ID: ");
+                        int sid = sc.nextInt();
+                        System.out.print("Course ID: ");
+                        int cid = sc.nextInt();
+                        studentService.assignCourse(sid, cid);
+                    }
+                    case 4 -> {
+                        System.out.println("All Students:");
+                        for (Student s : studentService.viewAllStudents())
+                            System.out.println(s);
+                    }
+                    case 5 -> {
+                        System.out.print("Student ID: ");
+                        int sid = sc.nextInt();
+                        System.out.print("New Name: ");
+                        String n = sc.next();
+                        studentService.updateStudentName(sid, n);
+                    }
+                    case 6 -> {
+                        System.out.print("Student ID: ");
+                        int sid = sc.nextInt();
+                        studentService.deleteStudent(sid);
+                    }
+                    case 7 -> {
+                        System.out.print("Student ID: ");
+                        int sid = sc.nextInt();
+                        System.out.print("Amount: ");
+                        double amt = sc.nextDouble();
+                        feeService.makePayment(sid, amt);
+                    }
+                    case 8 -> {
+                        System.out.print("Student ID: ");
+                        int sid = sc.nextInt();
+                        System.out.print("Amount: ");
+                        double amt = sc.nextDouble();
+                        feeService.refundPayment(sid, amt);
+                    }
+                    case 9 -> {
+                        System.out.println("Exiting...");
+                        context.close();
+                        return;
+                    }
+                    default -> System.out.println("Invalid choice!");
+                }
+            } catch (Exception e) {
+                System.out.println("Error: " + e.getMessage());
+            }
+        }
+    }
+}
+```
+
+---
+
+## ⚙️ 6. `pom.xml`
+
+```xml
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.example</groupId>
+    <artifactId>student-management</artifactId>
+    <version>1.0</version>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-context</artifactId>
+            <version>6.1.2</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-orm</artifactId>
+            <version>6.1.2</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-tx</artifactId>
+            <version>6.1.2</version>
+        </dependency>
+        <dependency>
+            <groupId>org.hibernate.orm</groupId>
+            <artifactId>hibernate-core</artifactId>
+            <version>6.4.2.Final</version>
+        </dependency>
+        <dependency>
+            <groupId>jakarta.persistence</groupId>
+            <artifactId>jakarta.persistence-api</artifactId>
+            <version>3.1.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <version>9.0.0</version>
+        </dependency>
+    </dependencies>
+</project>
