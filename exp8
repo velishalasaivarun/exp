@@ -1,0 +1,411 @@
+## 🧩 1. `AppConfig.java`
+
+```java
+package com.example.app.config;
+
+import java.util.Properties;
+import javax.sql.DataSource;
+
+import org.springframework.context.annotation.*;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.orm.hibernate5.HibernateTransactionManager;
+import org.springframework.orm.hibernate5.LocalSessionFactoryBean;
+import org.springframework.transaction.annotation.EnableTransactionManagement;
+
+@Configuration
+@ComponentScan(basePackages = "com.example.app")
+@EnableTransactionManagement
+public class AppConfig {
+
+    @Bean
+    public DataSource dataSource() {
+        DriverManagerDataSource ds = new DriverManagerDataSource();
+        ds.setDriverClassName("com.mysql.cj.jdbc.Driver");
+        ds.setUrl("jdbc:mysql://localhost:3306/testdb?useSSL=false");
+        ds.setUsername("root");
+        ds.setPassword("yourpassword");
+        return ds;
+    }
+
+    @Bean
+    public LocalSessionFactoryBean sessionFactory() {
+        LocalSessionFactoryBean factory = new LocalSessionFactoryBean();
+        factory.setDataSource(dataSource());
+        factory.setPackagesToScan("com.example.app.model");
+        Properties props = new Properties();
+        props.put("hibernate.dialect", "org.hibernate.dialect.MySQL8Dialect");
+        props.put("hibernate.hbm2ddl.auto", "update");
+        props.put("hibernate.show_sql", "true");
+        factory.setHibernateProperties(props);
+        return factory;
+    }
+
+    @Bean
+    public HibernateTransactionManager transactionManager() {
+        return new HibernateTransactionManager(sessionFactory().getObject());
+    }
+}
+```
+
+---
+
+## 🧱 2. Model Classes
+
+### `Course.java`
+
+```java
+package com.example.app.model;
+
+public class Course {
+    private String courseName;
+
+    public Course(String courseName) {
+        this.courseName = courseName;
+    }
+
+    public void showCourse() {
+        System.out.println("Course: " + courseName);
+    }
+}
+```
+
+### `Student.java`
+
+```java
+package com.example.app.model;
+
+import jakarta.persistence.*;
+
+@Entity
+@Table(name = "students")
+public class Student {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private int id;
+
+    private String name;
+    private String email;
+
+    @Transient
+    private Course course;
+
+    public Student() {}
+    public Student(String name, String email) {
+        this.name = name;
+        this.email = email;
+    }
+
+    public void setCourse(Course course) {
+        this.course = course;
+    }
+
+    public void showDetails() {
+        System.out.println("Student: " + name + " (" + email + ")");
+        if (course != null) course.showCourse();
+    }
+
+    // Getters/Setters
+    public int getId() { return id; }
+    public void setId(int id) { this.id = id; }
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
+}
+```
+
+### `Account.java`
+
+```java
+package com.example.app.model;
+
+import jakarta.persistence.*;
+
+@Entity
+@Table(name = "accounts")
+public class Account {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private int id;
+
+    private String owner;
+    private double balance;
+
+    public Account() {}
+    public Account(String owner, double balance) {
+        this.owner = owner;
+        this.balance = balance;
+    }
+
+    // Getters/Setters
+    public int getId() { return id; }
+    public String getOwner() { return owner; }
+    public void setOwner(String owner) { this.owner = owner; }
+    public double getBalance() { return balance; }
+    public void setBalance(double balance) { this.balance = balance; }
+}
+```
+
+### `TransactionRecord.java`
+
+```java
+package com.example.app.model;
+
+import jakarta.persistence.*;
+import java.util.Date;
+
+@Entity
+@Table(name = "transactions")
+public class TransactionRecord {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private int id;
+
+    private int fromAccountId;
+    private int toAccountId;
+    private double amount;
+
+    @Temporal(TemporalType.TIMESTAMP)
+    private Date date;
+
+    public TransactionRecord() {}
+
+    public TransactionRecord(int from, int to, double amount) {
+        this.fromAccountId = from;
+        this.toAccountId = to;
+        this.amount = amount;
+        this.date = new Date();
+    }
+}
+```
+
+---
+
+## 🧰 3. DAO Classes
+
+### `StudentDAO.java`
+
+```java
+package com.example.app.dao;
+
+import com.example.app.model.Student;
+import org.hibernate.Session;
+import org.hibernate.SessionFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+
+@Repository
+public class StudentDAO {
+    @Autowired
+    private SessionFactory sessionFactory;
+
+    public void save(Student s) {
+        sessionFactory.getCurrentSession().save(s);
+    }
+
+    public List<Student> findAll() {
+        return sessionFactory.getCurrentSession()
+                .createQuery("from Student", Student.class)
+                .list();
+    }
+}
+```
+
+### `AccountDAO.java`
+
+```java
+package com.example.app.dao;
+
+import com.example.app.model.Account;
+import com.example.app.model.TransactionRecord;
+import org.hibernate.SessionFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Repository;
+
+@Repository
+public class AccountDAO {
+    @Autowired
+    private SessionFactory sessionFactory;
+
+    public Account get(int id) {
+        return sessionFactory.getCurrentSession().get(Account.class, id);
+    }
+
+    public void update(Account acc) {
+        sessionFactory.getCurrentSession().update(acc);
+    }
+
+    public void saveTransaction(TransactionRecord tr) {
+        sessionFactory.getCurrentSession().save(tr);
+    }
+}
+```
+
+---
+
+## 💳 4. Service Class (Transactional)
+
+### `BankService.java`
+
+```java
+package com.example.app.service;
+
+import com.example.app.dao.AccountDAO;
+import com.example.app.model.Account;
+import com.example.app.model.TransactionRecord;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service
+public class BankService {
+
+    @Autowired
+    private AccountDAO accountDAO;
+
+    @Transactional
+    public void transferMoney(int fromId, int toId, double amount) {
+        Account from = accountDAO.get(fromId);
+        Account to = accountDAO.get(toId);
+
+        if (from == null || to == null)
+            throw new RuntimeException("Account not found!");
+
+        if (from.getBalance() < amount)
+            throw new RuntimeException("Insufficient balance!");
+
+        from.setBalance(from.getBalance() - amount);
+        to.setBalance(to.getBalance() + amount);
+
+        accountDAO.update(from);
+        accountDAO.update(to);
+
+        TransactionRecord tr = new TransactionRecord(fromId, toId, amount);
+        accountDAO.saveTransaction(tr);
+
+        System.out.println("Transferred $" + amount + " from " + from.getOwner() + " to " + to.getOwner());
+    }
+}
+```
+
+---
+
+## 🚀 5. Main Class
+
+### `MainApp.java`
+
+```java
+package com.example.app;
+
+import com.example.app.config.AppConfig;
+import com.example.app.dao.StudentDAO;
+import com.example.app.model.Course;
+import com.example.app.model.Student;
+import com.example.app.service.BankService;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+
+public class MainApp {
+    public static void main(String[] args) {
+        AnnotationConfigApplicationContext context =
+                new AnnotationConfigApplicationContext(AppConfig.class);
+
+        // =============== PART A: Spring DI ==================
+        System.out.println("=== Dependency Injection Demo ===");
+        Course course = new Course("Spring and Hibernate");
+        Student student = new Student("Alice", "alice@example.com");
+        student.setCourse(course);
+        student.showDetails();
+
+        // =============== PART B: Hibernate CRUD ==================
+        System.out.println("\n=== Hibernate CRUD Demo ===");
+        StudentDAO studentDAO = context.getBean(StudentDAO.class);
+
+        // Save student
+        context.getTransactionSynchronizationManager().isActualTransactionActive();
+        context.getBeanFactory().getBeanDefinitionNames();
+
+        context.getBeanFactory();
+        org.hibernate.SessionFactory sessionFactory = context.getBean(org.hibernate.SessionFactory.class);
+        var session = sessionFactory.openSession();
+        session.beginTransaction();
+        studentDAO.save(student);
+        session.getTransaction().commit();
+        session.close();
+
+        System.out.println("Saved student successfully.");
+
+        // =============== PART C: Transaction Management ==================
+        System.out.println("\n=== Transaction Management Demo ===");
+        BankService bankService = context.getBean(BankService.class);
+
+        try {
+            bankService.transferMoney(1, 2, 200.0);
+        } catch (Exception e) {
+            System.out.println("Transaction failed: " + e.getMessage());
+        }
+
+        context.close();
+    }
+}
+```
+
+---
+
+## 🧾 6. `pom.xml` (Maven)
+
+```xml
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.example</groupId>
+    <artifactId>spring-hibernate-allinone</artifactId>
+    <version>1.0</version>
+
+    <dependencies>
+        <!-- Spring Core / Context -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-context</artifactId>
+            <version>6.1.2</version>
+        </dependency>
+
+        <!-- Spring ORM -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-orm</artifactId>
+            <version>6.1.2</version>
+        </dependency>
+
+        <!-- Hibernate -->
+        <dependency>
+            <groupId>org.hibernate.orm</groupId>
+            <artifactId>hibernate-core</artifactId>
+            <version>6.4.2.Final</version>
+        </dependency>
+
+        <!-- MySQL Connector -->
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <version>9.0.0</version>
+        </dependency>
+
+        <!-- JPA (Jakarta Persistence) -->
+        <dependency>
+            <groupId>jakarta.persistence</groupId>
+            <artifactId>jakarta.persistence-api</artifactId>
+            <version>3.1.0</version>
+        </dependency>
+
+        <!-- Spring TX -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-tx</artifactId>
+            <version>6.1.2</version>
+        </dependency>
+    </dependencies>
+</project>
