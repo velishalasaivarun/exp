@@ -1,0 +1,198 @@
+import javax.swing.*;
+import java.awt.*;
+import java.awt.event.*;
+import java.sql.*;
+import java.util.*;
+
+public class SmartCampusGUI extends JFrame {
+    private static Connection con;
+    private JTextArea outputArea;
+
+    public SmartCampusGUI() {
+        setTitle("🎓 Smart Campus Management System");
+        setSize(700, 600);
+        setDefaultCloseOperation(EXIT_ON_CLOSE);
+        setLayout(new BorderLayout());
+
+        JLabel title = new JLabel("SMART CAMPUS MANAGEMENT SYSTEM", JLabel.CENTER);
+        title.setFont(new Font("Segoe UI", Font.BOLD, 22));
+        title.setForeground(Color.BLUE);
+        add(title, BorderLayout.NORTH);
+
+        outputArea = new JTextArea();
+        outputArea.setEditable(false);
+        outputArea.setFont(new Font("Consolas", Font.PLAIN, 14));
+        add(new JScrollPane(outputArea), BorderLayout.CENTER);
+
+        JPanel buttonPanel = new JPanel(new GridLayout(1, 4, 10, 10));
+        JButton studentBtn = new JButton("👩‍🎓 Student");
+        JButton libraryBtn = new JButton("📚 Library");
+        JButton dijkstraBtn = new JButton("🧭 Campus Route");
+        JButton exitBtn = new JButton("❌ Exit");
+
+        buttonPanel.add(studentBtn);
+        buttonPanel.add(libraryBtn);
+        buttonPanel.add(dijkstraBtn);
+        buttonPanel.add(exitBtn);
+        add(buttonPanel, BorderLayout.SOUTH);
+
+        studentBtn.addActionListener(e -> studentMenu());
+        libraryBtn.addActionListener(e -> libraryMenu());
+        dijkstraBtn.addActionListener(e -> dijkstraMenu());
+        exitBtn.addActionListener(e -> System.exit(0));
+
+        connectDatabase();
+        setVisible(true);
+    }
+
+    void connectDatabase() {
+        try {
+            String url = "jdbc:mysql://localhost:3306/campus_db";
+            String user = "root";
+            String password = "@Saivarun1";
+            Class.forName("com.mysql.cj.jdbc.Driver");
+            con = DriverManager.getConnection(url, user, password);
+            outputArea.setText("✅ Connected to Database Successfully!\n");
+        } catch (Exception e) {
+            outputArea.setText("❌ Database Connection Failed!\n" + e.getMessage());
+        }
+    }
+
+    void studentMenu() {
+        String[] options = {"Add Student", "View Students", "Delete Student", "Back"};
+        int choice = JOptionPane.showOptionDialog(this, "Choose Student Operation", "Student Management",
+                JOptionPane.DEFAULT_OPTION, JOptionPane.INFORMATION_MESSAGE, null, options, options[0]);
+
+        try {
+            switch (choice) {
+                case 0 -> addStudent();
+                case 1 -> viewStudents();
+                case 2 -> deleteStudent();
+            }
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(this, e.getMessage());
+        }
+    }
+
+    void addStudent() throws Exception {
+        int roll = Integer.parseInt(JOptionPane.showInputDialog("Enter Roll No:"));
+        String name = JOptionPane.showInputDialog("Enter Name:");
+        String course = JOptionPane.showInputDialog("Enter Course:");
+
+        PreparedStatement ps = con.prepareStatement("INSERT INTO students VALUES (?, ?, ?)");
+        ps.setInt(1, roll);
+        ps.setString(2, name);
+        ps.setString(3, course);
+        ps.executeUpdate();
+        outputArea.append("✅ Student Added: " + name + "\n");
+    }
+
+    void viewStudents() throws Exception {
+        ResultSet rs = con.createStatement().executeQuery("SELECT * FROM students");
+        outputArea.setText("Roll\tName\tCourse\n");
+        while (rs.next())
+            outputArea.append(rs.getInt(1) + "\t" + rs.getString(2) + "\t" + rs.getString(3) + "\n");
+    }
+
+    void deleteStudent() throws Exception {
+        int roll = Integer.parseInt(JOptionPane.showInputDialog("Enter Roll No to Delete:"));
+        PreparedStatement ps = con.prepareStatement("DELETE FROM students WHERE roll_no=?");
+        ps.setInt(1, roll);
+        ps.executeUpdate();
+        outputArea.append("🗑️ Student Deleted (Roll: " + roll + ")\n");
+    }
+
+    void libraryMenu() {
+        String[] options = {"Add Book", "View Books", "Issue Book", "Back"};
+        int choice = JOptionPane.showOptionDialog(this, "Choose Library Operation", "Library Management",
+                JOptionPane.DEFAULT_OPTION, JOptionPane.INFORMATION_MESSAGE, null, options, options[0]);
+
+        try {
+            switch (choice) {
+                case 0 -> addBook();
+                case 1 -> viewBooks();
+                case 2 -> issueBook();
+            }
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(this, e.getMessage());
+        }
+    }
+
+    void addBook() throws Exception {
+        int id = Integer.parseInt(JOptionPane.showInputDialog("Enter Book ID:"));
+        String title = JOptionPane.showInputDialog("Enter Title:");
+        String author = JOptionPane.showInputDialog("Enter Author:");
+
+        PreparedStatement ps = con.prepareStatement("INSERT INTO books VALUES (?, ?, ?)");
+        ps.setInt(1, id);
+        ps.setString(2, title);
+        ps.setString(3, author);
+        ps.executeUpdate();
+        outputArea.append("📗 Book Added: " + title + "\n");
+    }
+
+    void viewBooks() throws Exception {
+        ResultSet rs = con.createStatement().executeQuery("SELECT * FROM books");
+        outputArea.setText("BookID\tTitle\tAuthor\n");
+        while (rs.next())
+            outputArea.append(rs.getInt(1) + "\t" + rs.getString(2) + "\t" + rs.getString(3) + "\n");
+    }
+
+    void issueBook() throws Exception {
+        int roll = Integer.parseInt(JOptionPane.showInputDialog("Enter Roll No:"));
+        int book = Integer.parseInt(JOptionPane.showInputDialog("Enter Book ID:"));
+
+        PreparedStatement ps = con.prepareStatement("INSERT INTO issue(roll_no, book_id, issue_date) VALUES (?, ?, CURDATE())");
+        ps.setInt(1, roll);
+        ps.setInt(2, book);
+        ps.executeUpdate();
+        outputArea.append("✅ Book Issued (Book ID: " + book + ")\n");
+    }
+
+    void dijkstraMenu() {
+        int[][] graph = {
+            {0, 2, 0, 1, 0},
+            {2, 0, 3, 2, 0},
+            {0, 3, 0, 0, 1},
+            {1, 2, 0, 0, 3},
+            {0, 0, 1, 3, 0}
+        };
+        int src = Integer.parseInt(JOptionPane.showInputDialog("Enter Source Node (0–4):"));
+        int[] dist = dijkstra(graph, src);
+
+        outputArea.setText("Node\tDistance from Source\n");
+        for (int i = 0; i < dist.length; i++)
+            outputArea.append(i + "\t" + dist[i] + "\n");
+    }
+
+    int[] dijkstra(int[][] graph, int src) {
+        int V = graph.length;
+        int[] dist = new int[V];
+        boolean[] visited = new boolean[V];
+        Arrays.fill(dist, Integer.MAX_VALUE);
+        dist[src] = 0;
+
+        for (int i = 0; i < V - 1; i++) {
+            int u = minDistance(dist, visited);
+            visited[u] = true;
+            for (int v = 0; v < V; v++)
+                if (!visited[v] && graph[u][v] != 0 && dist[u] + graph[u][v] < dist[v])
+                    dist[v] = dist[u] + graph[u][v];
+        }
+        return dist;
+    }
+
+    int minDistance(int[] dist, boolean[] visited) {
+        int min = Integer.MAX_VALUE, index = -1;
+        for (int i = 0; i < dist.length; i++)
+            if (!visited[i] && dist[i] <= min) {
+                min = dist[i];
+                index = i;
+            }
+        return index;
+    }
+
+    public static void main(String[] args) {
+        new SmartCampusGUI();
+    }
+}
